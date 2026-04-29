@@ -164,8 +164,51 @@ From CTE_RevenuePerStore AS rps
 )
 Select * From CTE_MarketShare_Revenue;
 --Q305. Use a CTE to find the nth highest salary without using TOP.
+With CTE_HighestSalary As 
+(
+Select 
+	e.EmployeeID,
+	e.Salary, 
+	DENSE_RANK() Over (Order by e.Salary DESC) AS rnk 
+From Employees As e
+)
+Select * From CTE_HighestSalary As hs
+Where hs.rnk = 5;
+
 --Q306. Write a CTE to identify which promotions resulted in the highest order values.
+With CTE_HighestOrderValue As
+(Select Top 1 with Ties
+	p.PromotionID,
+	Sum(od.UnitPrice * od.Quantity) As orderValue 
+From Promotions AS p 
+Inner Join Orders AS o On o.OrderDate Between p.StartDate And p.EndDate 
+Inner Join OrderDetails As od On od.OrderID= o.OrderID
+Group by p.PromotionID
+Order by orderValue DESC
+)Select * From CTE_HighestOrderValue;
+
 --Q307. Use multiple CTEs to compare revenue: current year vs prior year.
+With CTE_RevenueCurrentYear As
+(
+Select Year(o.OrderDate) As Current_Year, Sum(od.UnitPrice * od.Quantity) As Revenue_of_CurrentYear 
+From Orders AS o 
+Inner Join OrderDetails As od On od.OrderID=o.OrderID 
+Where Year(o.OrderDate) = Year(GetDate())
+Group by Year(o.OrderDate))
+, CTE_RevenuePriorYear As
+(
+Select Year(o.OrderDate) AS Prior_Year, Sum(od.UnitPrice * od.Quantity) AS Revenue_of_PriorYear
+From Orders AS o 
+Inner Join OrderDetails AS od On od.OrderID=o.OrderID
+Where Year(GetDATE()) - Year(o.OrderDate) = 1
+Group by Year(o.OrderDate))
+, CTE_CompareRevenue As
+(
+Select rcy.*,rpy.Revenue_of_PriorYear 
+From CTE_RevenueCurrentYear As rcy 
+Inner Join CTE_RevenuePriorYear As rpy ON rpy.Prior_Year +1 = rcy.Current_Year
+)
+Select * From CTE_CompareRevenue;
 --Q308. Create a CTE that computes a 'health score' for each supplier (rating, order volume, return rate).
 With CTE_Ratings As
 (
@@ -205,7 +248,39 @@ Inner Join CTE_ReturnRate AS rr On rr.SupplierID = r.SupplierID
 )
 Select * From CTE_HealthScore;
 --Q309. Use a CTE to find the longest streak of consecutive days with at least one order.
+With CTE_DistinctDays As
+(
+Select Distinct o.OrderDate From Orders As o
+)
+, CTE_Numbered As 
+(
+Select dd.OrderDate,ROW_NUMBER() Over(Order by dd.OrderDate) AS rn From CTE_DistinctDays AS dd
+)
+,CTE_Grouped AS
+(
+Select n.OrderDate, DateAdd(Day,-rn,n.OrderDate) As grp_key From CTE_Numbered AS n
+)
+,CTE_Streaked AS
+(
+Select g.grp_key,Count(*) AS streak_length,Min(g.OrderDate) AS start_date,Max(g.OrderDate) As end_date From CTE_Grouped As g Group by g.grp_key
+)
+Select Top 1
+	s.streak_length,
+	s.start_date,
+	s.end_date
+From CTE_Streaked As s
+Order by s.streak_length DESC;
 --Q310. Write a CTE to calculate average order value per customer cohort (by join year).
+With CTE_Cohort As
+(Select c.CustomerID,Year(c.JoinDate) AS Join_Year From Customers As c)
+, CTE_OrderValue As
+(Select o.CustomerID,Year(o.OrderDate) As Order_Year,Sum(od.UnitPrice * od.Quantity) AS OrderValue From Orders AS o Inner Join OrderDetails As od On od.OrderID=o.OrderID Group by Year(o.OrderDate), o.CustomerID)
+, CTE_AvgOrderValue As
+(
+Select ov.CustomerID, ov.Order_Year,Avg(ov.OrderValue) AS Avg_OrderValue From CTE_OrderValue as ov Inner Join CTE_Cohort AS c On c.CustomerID= ov.CustomerID And c.Join_Year=ov.Order_Year Group by ov.Order_Year,ov.CustomerID
+)
+Select * From CTE_AvgOrderValue;
+
 --Q311. Create a recursive CTE that generates a sequence of dates for a given range.
 
 With CTE_GeneratingNumbers AS

@@ -5,8 +5,8 @@ Go
 --Q277. Rank customers by total spending using RANK().
 Select 
 	o.CustomerID,
-	(Sum(od.UnitPrice * od.Quantity) - Sum(od.Discount)) As Total_Spending_per_Customer,
-	Rank() Over(Order by (Sum(od.UnitPrice * od.Quantity) - Sum(od.Discount)) Desc) As Rank_over_totalSpendings
+	SUM(od.UnitPrice * od.Quantity * (1 - od.Discount/100)) As Total_Spending_per_Customer,
+	Rank() Over(Order by SUM(od.UnitPrice * od.Quantity * (1 - od.Discount/100)) Desc) As Rank_over_totalSpendings
 From Orders As o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
 Group by o.CustomerID;
@@ -47,12 +47,13 @@ Select
 From Employees As e;
 --Q282. Use LAG() to compare each month's revenue to the previous month.
 Select 
+	Year(o.OrderDate) AS CurrentYear,
 	Month(o.OrderDate) As CurrentMonth,
 	Sum(od.UnitPrice * od.Quantity) As Revenue_per_CurrentMonth,
-	LAG(Sum(od.UnitPrice * od.Quantity)) Over (Order by Month(o.OrderDate) Asc) As Revenue_per_PreviosMonth
+	LAG(Sum(od.UnitPrice * od.Quantity)) Over (Order by Year(o.OrderDAte),Month(o.OrderDate) Asc) As Revenue_per_PreviosMonth
 From Orders AS o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
-Group by Month(o.OrderDate);
+Group by Year(o.OrderDate),Month(o.OrderDate);
 --Q283. Use LEAD() to show the next order date for each customer.
 Select 
 	o.CustomerID,
@@ -62,12 +63,13 @@ From Orders As o
 Order by o.CustomerID;
 --Q284. Calculate a 3-month moving average of sales revenue.
 Select 
+	Year(o.OrderDate) AS Year,
 	Month(o.OrderDate) As Month,
 	Sum(od.UnitPrice * od.Quantity) As Revenue_per_Month,
-	Avg(Sum(od.UnitPrice * od.Quantity)) Over (Order by Month(o.OrderDate) Rows Between 2 Preceding And Current Row) As Moving_Avg_over_3Month_Revenue
+	Avg(Sum(od.UnitPrice * od.Quantity)) Over (Order by Year(o.OrderDate),Month(o.OrderDate) Rows Between 2 Preceding And Current Row) As Moving_Avg_over_3Month_Revenue
 From Orders As o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
-Group by Month(o.OrderDate);
+Group by Year(o.OrderDate),Month(o.OrderDate);
 --Q285. Find the first and last order date per customer using FIRST_VALUE() and LAST_VALUE().
 Select Distinct
 	o.CustomerID,
@@ -106,20 +108,19 @@ Select
 	Round((p.UnitPrice - Avg(p.UnitPrice) Over(Partition by p.CategoryID)),4) As Diff_btw_UnitPrice_Avg_CategoryPrice
 From Products As p;
 --Q290. Use ROW_NUMBER() to de-duplicate customers with duplicate emails (keep the earliest).
-Select 
-	tmp2.Email,
-	Min(tmp2.JoinDate) As Earliest_Customer
-From
-(Select tmp1.*
-From
-	(Select 
-		c.CustomerID,
-		c.Email,
-		c.JoinDate,
-		ROW_NUMBER() Over (Partition by c.Email Order by c.JoinDate) As Row_Number_over_Email
-	From Customers As c) AS tmp1
-Where tmp1.Row_Number_over_Email>1) AS tmp2
-Group by tmp2.Email;
+SELECT CustomerID, Email, JoinDate
+FROM (
+    SELECT
+        c.CustomerID,
+        c.Email,
+        c.JoinDate,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.Email 
+            ORDER BY c.JoinDate ASC
+        ) AS rn
+    FROM Customers AS c
+) AS tmp
+WHERE rn = 1;
 --Q291. Show running count of orders per customer over time.
 Select 
 	o.CustomerID,
@@ -137,7 +138,7 @@ From
 		Sum(od.UnitPrice * od.Quantity) As Revenue_CurrentMonth,
 		LAG(Sum(od.UnitPrice * od.Quantity),1,Sum(od.UnitPrice * od.Quantity)) Over (Order by Month(o.OrderDate) ASC) As Revenue_PreviousMonth
 	From Orders As o
-	Inner Join OrderDetails As od On od.OrderID=od.OrderID
+	Inner Join OrderDetails As od On od.OrderID=o.OrderID
 	Group by Month(o.OrderDate)) As tmp1
 Where tmp1.Revenue_CurrentMonth < tmp1.Revenue_PreviousMonth;
 --Q293. Calculate each employee's salary as a percentage of the department total.
@@ -157,11 +158,11 @@ Inner Join OrderDetails As od On od.OrderID=o.OrderID
 Group by o.CustomerID;
 --Q295. Compute a 7-day rolling average of daily order counts.
 Select 
-	Day(o.OrderDate) Day,
+	Cast(o.OrderDAte AS Date) As Day,
 	Count(o.OrderID) AS Count_Daily_Orders,
-	Avg(Count(o.OrderID)) Over (Order by Day(o.OrderDate) Asc Rows Between 6 Preceding And Current Row) AS Avg_Daily_Orders
+	Avg(Count(o.OrderID)) Over (Order by CAST(o.OrderDate AS DATE) Asc Rows Between 6 Preceding And Current Row) AS Avg_Daily_Orders
 From Orders AS o
-Group by Day(o.OrderDate);
+Group by Cast(o.OrderDAte AS DATE);
 --Q296. Use CUME_DIST() to find the cumulative distribution of product prices.
 Select 
 	p.ProductID,

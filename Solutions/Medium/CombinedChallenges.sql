@@ -33,11 +33,10 @@ From Customers As c
 Inner Join
 	(Select 
 		o.CustomerID,
-		Count(od.OrderID) AS No_of_Orders 
-	From OrderDetails As od
-	Inner Join Orders As o On o.OrderID=od.OrderID
+		Count(o.OrderID) AS No_of_Orders 
+	From Orders As o
 	Group by o.CustomerID
-	Having Count(od.OrderID) > 5) As Customers_With_MoreThan_5_Orders 
+	Having Count(o.OrderID) > 5) As Customers_With_MoreThan_5_Orders 
 On Customers_With_MoreThan_5_Orders.CustomerID=c.CustomerID
 Where c.CustomerTier = 'Bronze';
 
@@ -55,6 +54,7 @@ ON e.JobTitle = Avg_per_JobTitle.JobTitle
 Where e.Salary > Avg_per_JobTitle.Avg_Salary;
 --Q199. Show the 3 most recent orders for each customer.
 Select 
+	o1.OrderID,
 	o1.CustomerID, 
 	o1.OrderDate
 From Orders AS o1
@@ -74,7 +74,7 @@ Having Sum(od.Quantity) > 50;
 --Q201. Calculate the percentage of orders that were cancelled per store.
 Select
 	PercentOrderTab.StoreID,
-	(PercentOrderTab.No_of_Orders_per_Store * 100 /PercentOrderTab.Total_Orders) As Percentage_Orders_per_Store
+	(PercentOrderTab.No_of_Orders_per_Store * 100.0 /PercentOrderTab.Total_Orders) As Percentage_Orders_per_Store
 From
 (Select 
 	o1.StoreID, 
@@ -89,7 +89,6 @@ Inner Join(
 	Group by o2.StoreID) AS totalOrdersTab On totalOrdersTab.StoreID=o1.StoreID
 Where o1.Status = 'Cancelled'
 Group by o1.StoreID,totalOrdersTab.Total_Orders) As PercentOrderTab;
-Select * From Stores As s;
 
 --Q202. List products where the average review rating is below 3 and total units sold > 100.
 Select 
@@ -107,28 +106,25 @@ Inner Join (
 Group by r.ProductID,UnitSold_Products.Total_Unit_Sold_per_Product 
 Having Avg(r.Rating) < 3;
 --Q203. Show the employee with the highest sales in each department.
-Select e.EmployeeID,Sales_per_EmployeeTab.total_Sales_per_Employee From Employees As e 
-Inner Join 
-(Select o.EmployeeID, Sum(od.Sales) As total_Sales_per_Employee From Orders As o
-Inner Join(
-	Select 
-		od.OrderID,
-		(od.UnitPrice * od.Quantity) As Sales
-	From OrderDetails As od) As od On od.OrderID = o.OrderID
-	Group by o.EmployeeID) As Sales_per_EmployeeTab On Sales_per_EmployeeTab.EmployeeID=e.EmployeeID
-Where Sales_per_EmployeeTab.total_Sales_per_Employee = Any
-(Select 
-	Max(Sales_per_EmployeeTab.total_Sales_per_Employee) As Max_Sales_per_Department
-From Employees As e
-Inner Join
-(Select o.EmployeeID, Sum(od.Sales) As total_Sales_per_Employee From Orders As o
-Inner Join(
-	Select 
-		od.OrderID,
-		(od.UnitPrice * od.Quantity) As Sales
-	From OrderDetails As od) As od On od.OrderID = o.OrderID
-	Group by o.EmployeeID) As Sales_per_EmployeeTab ON Sales_per_EmployeeTab.EmployeeID = e.EmployeeID
-Group by e.DepartmentID);
+SELECT e.EmployeeID, e.DepartmentID, emp_sales.Total_Sales
+FROM Employees AS e
+INNER JOIN (
+    SELECT o.EmployeeID, SUM(od.UnitPrice * od.Quantity) AS Total_Sales
+    FROM Orders AS o
+    INNER JOIN OrderDetails AS od ON od.OrderID = o.OrderID
+    GROUP BY o.EmployeeID
+) AS emp_sales ON emp_sales.EmployeeID = e.EmployeeID
+WHERE emp_sales.Total_Sales = (
+    SELECT MAX(emp_sales2.Total_Sales)
+    FROM Employees AS e2
+    INNER JOIN (
+        SELECT o.EmployeeID, SUM(od.UnitPrice * od.Quantity) AS Total_Sales
+        FROM Orders AS o
+        INNER JOIN OrderDetails AS od ON od.OrderID = o.OrderID
+        GROUP BY o.EmployeeID
+    ) AS emp_sales2 ON emp_sales2.EmployeeID = e2.EmployeeID
+    WHERE e2.DepartmentID = e.DepartmentID  
+);
 
 --Q204. Find customers who have ordered every product in CategoryID = 1.
 Select o.CustomerID,Count(Distinct od.ProductID) As Total_Product_per_Customer_of_Cat1 From Orders As o
@@ -169,24 +165,16 @@ Group by o.CustomerID
 Having Count(Distinct o.StoreID)>=3;
 --Q210. Calculate the revenue impact if all Bronze-tier customers upgraded to Silver (assuming 10% more
 --      spending).
-Select 
-	Customer_Revenue.*, 
-	Ten_percent_Customer_Revenue.Ten_percent_of_Revenue_per_Customer,
-	(Customer_Revenue.Revenue_per_Customer+Ten_percent_Customer_Revenue.Ten_percent_of_Revenue_per_Customer) AS Revenue_Impact 
-From
-(Select o.CustomerID, Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Customer
-From Orders AS o
-Inner Join OrderDetails as od On od.OrderID=o.OrderID
-Inner Join Customers as c On c.CustomerID=o.CustomerID
-Where c.CustomerTier = 'Bronze'
-Group by o.CustomerID) As Customer_Revenue
-Inner Join
-(Select o.CustomerID, (Sum(od.UnitPrice * od.Quantity)*0.1) AS Ten_percent_of_Revenue_per_Customer
-From Orders AS o
-Inner Join OrderDetails as od On od.OrderID=o.OrderID
-Inner Join Customers as c On c.CustomerID=o.CustomerID
-Where c.CustomerTier = 'Bronze'
-Group by o.CustomerID) AS Ten_percent_Customer_Revenue On Ten_percent_Customer_Revenue.CustomerID=Customer_Revenue.CustomerID;
+SELECT 
+    o.CustomerID,
+    SUM(od.UnitPrice * od.Quantity) AS Current_Revenue,
+    SUM(od.UnitPrice * od.Quantity) * 1.10 AS Projected_Revenue,
+    SUM(od.UnitPrice * od.Quantity) * 0.10 AS Revenue_Impact
+FROM Orders AS o
+INNER JOIN OrderDetails AS od ON od.OrderID = o.OrderID
+INNER JOIN Customers AS c ON c.CustomerID = o.CustomerID
+WHERE c.CustomerTier = 'Bronze'
+GROUP BY o.CustomerID;
 --Q211. Find employees who have worked shifts in more than one store.
 Select es.EmployeeID,Count(Distinct es.StoreID) As Count_Shifts_Diff_Stores
 From EmployeeShifts As es
@@ -215,13 +203,14 @@ Left Join OrderDetails As od On od.ProductID = r.ProductID
 Where od.ProductID Is Null;
 
 --Q214. Find customers whose average order value exceeds $500.
-Select 
-	o.CustomerID,
-	Avg(od.UnitPrice * od.Quantity) As Avg_Order_Value
-From Orders As o
-Inner Join OrderDetails As od On od.OrderID=o.OrderID
-Group by o.CustomerID
-Having Avg(od.UnitPrice * od.Quantity) > 500;
+SELECT o.CustomerID, AVG(OrderTotals.Order_Total) AS Avg_Order_Value
+FROM Orders AS o
+INNER JOIN (
+    SELECT OrderID, SUM(UnitPrice * Quantity) AS Order_Total
+    FROM OrderDetails GROUP BY OrderID
+) AS OrderTotals ON OrderTotals.OrderID = o.OrderID
+GROUP BY o.CustomerID
+HAVING AVG(OrderTotals.Order_Total) > 500;
 --Q215. Show the total discount given per promotion.
 Select 
 	p.PromotionID,
@@ -242,10 +231,10 @@ Group by o.EmployeeID;
 --Q217. Find suppliers whose average product price is above $75.
 Select 
 	p.SupplierID,
-	Avg(p.CostPrice) As Avg_Cost_Price
+	Avg(p.UnitPrice) As Avg_Unit_Price
 From Products As p
 Group by p.SupplierID
-Having Avg(p.CostPrice) > 75;
+Having Avg(p.UnitPrice) > 75;
 --Q218. List stores with an average order value above the overall average.
 Select 
 	o.StoreID,
@@ -303,10 +292,12 @@ From Products AS p
 Inner Join OrderDetails As od On od.ProductID = p.ProductID
 Group by p.SupplierID;
 --Q226. Calculate the average number of products per order.
-Select 
-	od.OrderID,
-	Avg(od.Quantity) As Avg_Products_per_Orders From OrderDetails As od
-Group by od.OrderID;
+SELECT AVG(Products_per_Order) AS Avg_Products_per_Order
+FROM (
+    SELECT OrderID, COUNT(DISTINCT ProductID) AS Products_per_Order
+    FROM OrderDetails
+    GROUP BY OrderID
+) AS OrderProductCount;
 --Q227. Find customers who have never given a review despite having placed 3+ orders.
 Select 
 	o.CustomerID, 
@@ -323,7 +314,7 @@ Select Top 1 With Ties
 From Orders As o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
 Group by DateName(WeekDay,o.OrderDate)
-Order by DateName(WeekDay,o.OrderDate) Desc;
+Order by Avg(od.UnitPrice*od.Quantity) Desc;
 --Q229. List all products that appear in returns more than twice.
 Select 
 	od.ProductID,
@@ -361,15 +352,14 @@ Select Top 10 With Ties
 	o.EmployeeID,
 	Count(o.OrderID) As No_of_Orders_per_Employee
 From Orders AS o
-Where o.Status = 'Processing'
 Group by o.EmployeeID
 Order by Count(o.OrderID) DESC;
 --Q233. Find product categories where average cost-to-price margin is below 20%.
 Select p.CategoryID,
-	(Sum(p.UnitPrice-p.CostPrice)*100/Sum(p.CostPrice)) As Avg_Cost_to_Price
+	AVg((p.UnitPrice-p.CostPrice)*100.0 / p.UnitPrice) As Avg_Cost_to_Price
 From Products As p
 Group by p.CategoryID
-Having Avg(p.UnitPrice-p.CostPrice) < 20;
+Having AVg((p.UnitPrice-p.CostPrice)*100.0 / p.UnitPrice) < 20;
 --Q234. List customers who placed their first order within 7 days of joining.
 Select 
 	c.CustomerID,
@@ -393,7 +383,7 @@ Having Count(Distinct od.ProductID) > 5;
 --Q236. Show suppliers that have not supplied a new product in the last 2 years.
 Select  Distinct p1.SupplierID
 From Products AS p1
-Where p1.SupplierID Not In (Select p2.SupplierID From Products As p2 Inner Join Inventory AS i On i.ProductID=p2.ProductID Where Year(i.LastUpdated)<=DateAdd(Year,-2,GetDate()));
+Where p1.SupplierID Not In (Select p2.SupplierID From Products As p2 Inner Join Inventory AS i On i.ProductID=p2.ProductID Where Year(i.LastUpdated)>=DateAdd(Year,-2,GetDate()));
 --Q237. Calculate each store's share of total company revenue.
 Select 
 	o.StoreID,
@@ -448,20 +438,38 @@ Select 1 From
 Order by Cust_Spending_Yearly1.CustomerID,Cust_Spending_Yearly1.Year;
 --Q242. Show monthly revenue with a comparison label: 'Above Average' or 'Below Average'.
 Select Month_Revenue.*,
-	Case
-		When Month_Revenue.Monthly_Revenue >= (Select Avg(od.UnitPrice*od.Quantity) As Avg_Revenue From OrderDetails As od) Then 'Above Average'
-		Else 'Below Average'
-	End As Revenue_Label
+    CASE
+        WHEN Monthly_Revenue >= (
+            SELECT AVG(Monthly_Revenue)
+            FROM (
+                SELECT Month(o.OrderDate) AS Month,
+                    SUM(od.UnitPrice * od.Quantity) AS Monthly_Revenue
+                FROM Orders AS o
+                INNER JOIN OrderDetails AS od ON od.OrderID = o.OrderID
+                GROUP BY Month(o.OrderDate)
+            ) AS Monthly
+        ) THEN 'Above Average'
+        ELSE 'Below Average'
+    END AS Revenue_Label
 From
 (Select Month(o.OrderDate) As Month, Sum(od.UnitPrice * od.Quantity) As Monthly_Revenue
 From Orders As o 
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
 Group by Month(o.OrderDate)) As Month_Revenue;
 --Q243. List products where the number of 1-star reviews exceeds 5-star reviews.
+Select 
+	OneStar.*,
+	FiveStar.Count_5_StarReviews 
+From 
+(Select r1.ProductID,Count(r1.Rating) As Count_1_StarReviews From Reviews As r1 Where r1.Rating=1 Group by r1.ProductID) AS OneStar
+Inner Join
+(Select r2.ProductID,Count(r2.Rating) As Count_5_StarReviews From Reviews AS r2 Where r2.Rating=5 Group by r2.ProductID) As FiveStar
+On FiveStar.ProductID=OneStar.ProductID
+Where OneStar.Count_1_StarReviews>FiveStar.Count_5_StarReviews;
 --Q244. Find the store that has the highest employee-to-revenue ratio.
 Select Top 1 With Ties
 	Employee_Store.StoreID,
-	(Revenue_Store.Revenue_per_Store/Employee_Store.No_of_Employee_per_Store) As Employee_to_Revenue_Ratio 
+	(Revenue_Store.Revenue_per_Store*1.0/Employee_Store.No_of_Employee_per_Store) As Employee_to_Revenue_Ratio 
 From
 (Select o.StoreID,Count(Distinct o.EmployeeID) As No_of_Employee_per_Store
 From Orders As o
@@ -491,6 +499,16 @@ Where s.StoreName != 'Online Store'
 Group by o.CustomerID
 Having Count(Distinct o.StoreID) = (Select Count(*) From Stores As s Where s.StoreName !='Online Store');
 --Q248. Show year-over-year change in total orders and revenue side-by-side.
+Select 
+	yearly_revenue.*,
+	yearly_orders.Order_per_Year 
+From
+(Select Year(o.OrderDate) AS Year1, Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Year From Orders As o
+Inner Join OrderDetails As od On od.OrderID=o.OrderID
+Group by Year(o.OrderDate)) As yearly_revenue 
+Inner Join
+(Select Year(o.OrderDate) AS Year2, Count(o.OrderID) AS Order_per_Year From Orders AS o
+Group by Year(o.OrderDate)) AS yearly_orders On yearly_orders.Year2=yearly_revenue.Year1;
 --Q249. Find employees whose salary is above average for their store AND their department.
 Select 
 	e1.EmployeeID,
@@ -538,15 +556,51 @@ Inner Join
 From OrderDetails As od
 Group by od.OrderID) As Order_Bucket On Order_Bucket.OrderID=Order_Value.OrderID;
 --Q252. Find the best and worst performing product in each category by revenue.
---Q253. List customers who placed orders in consecutive months for at least 6 months.			
+Select 
+	max_product_category.*,
+	min_product_category.ProductID,
+	min_product_category.Min_Performming 
+From
+(Select max_revenue.CategoryID,product_revenue1.ProductID, max_revenue.Max_Performing From
+(Select product_revenue.CategoryID, Max(Revenue_per_Product_Category) As Max_Performing From
+(Select p.CategoryID,p.ProductID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Product_Category 
+From OrderDetails AS od
+Inner Join Products AS p On p.ProductID=od.ProductID
+Group by p.CategoryID,p.ProductID) AS product_revenue
+Group by product_revenue.CategoryID) AS max_revenue
+Inner Join 
+(Select p.CategoryID,p.ProductID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Product_Category 
+From OrderDetails AS od
+Inner Join Products AS p On p.ProductID=od.ProductID
+Group by p.CategoryID,p.ProductID) AS product_revenue1 
+On product_revenue1.Revenue_per_Product_Category=max_revenue.Max_Performing) As max_product_category
+Inner Join 
+(Select min_revenue.CategoryID,product_revenue3.ProductID,min_revenue.Min_Performming From
+(Select product_revenue2.CategoryID,Min(Revenue_per_Product_Category) As Min_Performming From
+(Select p.CategoryID,p.ProductID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Product_Category 
+From OrderDetails AS od
+Inner Join Products AS p On p.ProductID=od.ProductID
+Group by p.CategoryID,p.ProductID) AS product_revenue2
+Group by product_revenue2.CategoryID) As min_revenue
+Inner Join
+(Select p.CategoryID,p.ProductID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Product_Category 
+From OrderDetails AS od
+Inner Join Products AS p On p.ProductID=od.ProductID
+Group by p.CategoryID,p.ProductID) AS product_revenue3
+On product_revenue3.Revenue_per_Product_Category = min_revenue.Min_Performming) AS min_product_category
+On min_product_category.CategoryID=max_product_category.CategoryID;
+
+
+--Q253. List customers who placed orders in consecutive months for at least 6 months.
 --Q254. Calculate total and average order value by store type.
 Select 
-	o.StoreID, 
+	s.StoreType, 
 	Sum(od.UnitPrice*od.Quantity) As Total_OrderValue_per_Store,
 	Avg(od.UnitPrice * od.Quantity) As Avg_OrderValue_per_Store
 From Orders As o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
-Group by o.StoreID;
+Inner Join Stores As s On s.StoreID=o.StoreID
+Group by s.StoreType;
 --Q255. Show the top 5 employees with the highest average basket value per transaction.
 Select Top 5 With Ties
 	Employee_OrderValue.*,
@@ -561,23 +615,23 @@ Inner Join OrderDetails As od On od.OrderID=o.OrderID
 Group by o.EmployeeID) As Employee_OrderValue
 Order by Avg_BasketValue_per_Employee Desc;
 --Q256. Find products frequently purchased together with a specific product (e.g., ProductID = 10).
+Select od.ProductID,Count(Distinct od.ORderID) AS Orders_per_Product From OrderDetails As od 
+Where od.OrderID In (Select od.OrderID From OrderDetails As od Where od.ProductID = 10) And od.ProductID != 10
+Group by od.ProductID
+Order by Orders_per_Product DESC;
 --Q257. Calculate the number of active customers (at least 1 order) per quarter.
-Select 
-	Order_Customer_Quater.CustomerID,
-	Count(Distinct Order_Customer_Quater.Quaters) AS Count_of_Quaters_per_CustomerOrder
-From
-(Select
-	o.OrderID,
-	o.CustomerID,
-	CASE
-		When Month(o.OrderDate) between 1 and 3 then 'Quater1'
-		When Month(o.OrderDate) between 4 and 6 then 'Quater2'
-		When Month(o.OrderDate) between 7 and 9 then 'Quater3'
-		Else 'Quater4'
-	END As Quaters 
-From Orders As o) AS Order_Customer_Quater
-Group by Order_Customer_Quater.CustomerID
-Having Count(Distinct Order_Customer_Quater.Quaters) = 4;
+SELECT Quaters, COUNT(DISTINCT CustomerID) AS Active_Customers
+FROM (
+    SELECT o.CustomerID,
+        CASE
+            WHEN MONTH(o.OrderDate) BETWEEN 1 AND 3  THEN 'Q1'
+            WHEN MONTH(o.OrderDate) BETWEEN 4 AND 6  THEN 'Q2'
+            WHEN MONTH(o.OrderDate) BETWEEN 7 AND 9  THEN 'Q3'
+            ELSE 'Q4'
+        END AS Quaters
+    FROM Orders AS o
+) AS QuarterOrders
+GROUP BY Quaters;
 --Q258. Show orders that include both ProductID = 5 and ProductID = 10.
 Select od1.OrderID
 From OrderDetails AS od1
@@ -598,8 +652,50 @@ Inner Join
 (Select o1.CustomerID,o1.OrderDate From Orders As o1 Where 1 = (Select Count(*) From Orders AS o2 Where o2.CustomerID=o1.CustomerID And o2.OrderDate < o1.OrderDate)) AS SecondOrder On SecondOrder.CustomerID=FirstOrder.CustomerID) As DayDiff_FirstSecond_Order;
 
 --Q260. List regions ranked by total revenue.
+Select s.RegionID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Region From Orders As o
+Inner Join OrderDetails As od On od.OrderID=o.OrderID
+Inner Join Stores As s On s.StoreID = o.StoreID
+Group by s.RegionID;
 --Q261. Show each employee's total managed revenue including their subordinates' revenue.
+Select 
+	mr.EmployeeID,
+	ser.Revenue_per_subEmployees
+	,mr.Revenue_per_Manager,
+	(mr.Revenue_per_Manager+ser.Revenue_per_subEmployees) AS Total_Managed_Revenue_per_Employee 
+From
+(Select er.ManagerID,Sum(Revenue_per_Employee) AS Revenue_per_subEmployees From 
+(Select o.EmployeeID,e.ManagerID, Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Employee From Orders AS o
+Inner Join OrderDetails As od On od.OrderID=o.OrderID
+Inner Join Employees AS e On e.EmployeeID=o.EmployeeID
+Where e.ManagerID Is NOT NULL
+Group by e.ManagerID,o.EmployeeID) AS er
+Group by er.ManagerID) AS ser
+Inner Join
+(Select o.EmployeeID, Sum(od.UnitPrice * od.Quantity) As Revenue_per_Manager From Orders AS o
+Inner Join OrderDetails AS od On od.OrderID=o.OrderID
+Inner Join Employees As e On e.EmployeeID = o.EmployeeID
+Where e.ManagerID Is NULL
+Group by o.EmployeeID) AS mr On mr.EmployeeID=ser.ManagerID;
 --Q262. Find the product category with the fastest growth in revenue between 2022 and 2023.
+Select Top 1 With Ties
+	y22.*,
+	y23.Revenue_per_Category_Y23,
+	((y23.Revenue_per_Category_Y23-y22.Revenue_per_Category_Y22)/y22.Revenue_per_Category_Y22 * 100.0) As Growth_btw_y22_y23 
+From 
+(Select p.CategoryID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Category_Y22
+From OrderDetails AS od
+Inner Join Products AS p On p.ProductID=od.ProductID
+Inner Join Orders As o On o.OrderID=od.OrderID
+Where Year(o.OrderDate)= 2022
+Group by p.CategoryID) AS y22
+Inner Join
+(Select p.CategoryID,Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Category_Y23
+From OrderDetails As od 
+Inner Join Products AS p On p.ProductID=od.ProductID
+Inner Join Orders As o On o.OrderID=od.OrderID
+Where Year(o.OrderDate) = 2023
+Group by p.CategoryID) AS y23 On y23.CategoryID = y22.CategoryID
+Order by Growth_btw_y22_y23 Desc;
 --Q263. Calculate customer tier upgrade potential: Bronze customers who spent > $2000 last year.
 Select 
 	Bronze_Customer.*, 
@@ -616,10 +712,58 @@ Group by o.CustomerID
 Having Sum(od.UnitPrice*od.Quantity) > 2000) As LastYear_Spending_greater_2000_Customers On LastYear_Spending_greater_2000_Customers.CustomerID=Bronze_Customer.CustomerID;
 
 --Q264. Show the 10 customers who have been waiting the longest for an order to ship.
-
+Select Top 10
+	o.CustomerID,
+	DateDiff(Day,o.OrderDate,GETDATE()) As DayDiff_btw_OrderDate_ShippedDate 
+From Orders As o
+Where o.ShippedDate IS NULL
+Order by DayDiff_btw_OrderDate_ShippedDate DESC;
 --Q265. Find stores where more than 30% of orders are from repeat customers.
+Select order_store.* From
+(Select 
+	os.StoreID,
+	os.Total_Orders_per_RepeatedCustomer_in_Stores,
+	tos.Orders_per_Store,
+	os.Total_Orders_per_RepeatedCustomer_in_Stores*100/tos.Orders_per_Store AS Percent_Orders_From_RepeatedCustomers_per_Store
+From 
+(Select order_per_store.StoreID,Sum(order_per_store.Order_per_RepeatedCustomers) As Total_Orders_per_RepeatedCustomer_in_Stores From
+(Select o.StoreID,o.CustomerID,Count(o.OrderID) AS Order_per_RepeatedCustomers From Orders As o 
+Where o.CustomerID IN (Select rc.CustomerID From(Select o.CustomerID,Count(o.OrderID) AS Orders_per_Customer_in_Store From Orders AS o Group by o.CustomerID Having Count(o.OrderID) > 1) AS rc)
+Group by o.StoreID,o.CustomerID) AS order_per_store
+Group by order_per_store.StoreID) As os
+Inner Join
+(Select o.StoreID,Count(o.OrderID) AS Orders_per_Store From Orders AS o Group by o.StoreID) AS tos On tos.StoreID = os.StoreID) 
+AS order_store
+Where order_store.Percent_Orders_From_RepeatedCustomers_per_Store > 30;
 --Q266. Calculate the average review rating for products by price bracket.
+Select p.ProductID,p.UnitPrice,
+ Case 
+	When p.UnitPrice Between 1 And 20 Then 'Very Low'
+	When p.UnitPrice Between 21 And 50 Then 'Low'
+	When p.UnitPrice Between 51 And 100 Then 'Affordable'
+	When p.UnitPrice Between 101 And 250 Then 'Mid'
+	When p.UnitPrice Between 251 And 500 Then 'Upper-Mid'
+	ELSE 'High'
+ End AS Price_Bracket,
+ AVg(r.Rating) Over (Partition by 
+	 Case 
+	When p.UnitPrice Between 1 And 20 Then 'Very Low'
+	When p.UnitPrice Between 21 And 50 Then 'Low'
+	When p.UnitPrice Between 51 And 100 Then 'Affordable'
+	When p.UnitPrice Between 101 And 250 Then 'Mid'
+	When p.UnitPrice Between 251 And 500 Then 'Upper-Mid'
+	ELSE 'High'
+ End) AS Avg_Rating_by_Price_Bracket
+From Products AS p
+Inner Join Reviews As r On r.ProductID=p.ProductID;
 --Q267. Show the employee hierarchy depth using a recursive CTE (count levels).
+With CTE_Managers As
+(
+	Select 1 AS Emplevel,e1.EmployeeID,e1.FirstName,e1.LastName, e1.ManagerID From Employees As e1 Where e1.ManagerID Is NULL
+	Union All
+	Select m.Emplevel+1,e2.EmployeeID,e2.FirstName,e2.LastName,e2.ManagerID From Employees AS e2 Inner Join CTE_Managers As m On m.EmployeeID=e2.ManagerID
+)
+Select * From CTE_Managers;
 --Q268. Find any duplicate customer emails (potential data issues).
 Select 
 	c1.CustomerID,
@@ -630,7 +774,7 @@ Where Exists(Select 1 From Customers As c2 Where c2.CustomerID!=c1.CustomerID an
 Select 
 	o.StoreID,
 	o.PaymentMethod,
-	Sum(o.OrderID) As Total_Orders_per_Store_and_PaymentMethod,
+	Count(o.OrderID) As Total_Orders_per_Store_and_PaymentMethod,
 	Sum(od.UnitPrice * od.Quantity) As Total_Revenue_per_Store_and_PaymentMethod
 From Orders As o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
@@ -706,16 +850,20 @@ Inner Join OrderDetails As od On od.OrderID=od.OrderID;
 
 
 --Q275. Show products with a review count greater than the category average.
-Select r.ProductID,Count(r.ReviewID) AS Review_Count_per_Product From Reviews As r
-Group by r.ProductID
-Having Count(r.ReviewID)>
-(Select 
-	Sum(Avg_Review_Category.Total_Reviews_per_Category)/Count(Avg_Review_Category.CategoryID)
-From
-(Select p.CategoryID,Count(r.ReviewID) As Total_Reviews_per_Category 
-From Products As p
-Inner Join Reviews As r On r.ProductID=p.ProductID
-Group by p.CategoryID) As Avg_Review_Category);
+SELECT r.ProductID, COUNT(r.ReviewID) AS Review_Count
+FROM Reviews AS r
+INNER JOIN Products AS p ON p.ProductID = r.ProductID
+GROUP BY r.ProductID, p.CategoryID
+HAVING COUNT(r.ReviewID) > (
+    SELECT AVG(CAST(Cat_Reviews.Review_Count AS FLOAT))
+    FROM (
+        SELECT p2.CategoryID, COUNT(r2.ReviewID) AS Review_Count
+        FROM Reviews AS r2
+        INNER JOIN Products AS p2 ON p2.ProductID = r2.ProductID
+        GROUP BY p2.CategoryID, p2.ProductID
+    ) AS Cat_Reviews
+    WHERE Cat_Reviews.CategoryID = p.CategoryID 
+);
 --Q276. Find customers who only ever buy from one specific store.
 Select o.CustomerID,Count(Distinct o.StoreID) AS Count_of_Store_Customer_Buy From Orders As o
 Group by o.CustomerID

@@ -7,7 +7,7 @@ With CTE_CustomerList AS
 (
 Select Top 5 With Ties
 	o.CustomerID,
-	(Sum(od.UnitPrice * od.Quantity) - Sum(od.Discount)) AS Life_time_value 
+	SUM(od.UnitPrice * od.Quantity * (1 - od.Discount/100)) AS Life_time_value 
 From Orders AS o
 Inner Join OrderDetails As od On od.OrderID=o.OrderID
 Group by o.CustomerID
@@ -37,27 +37,31 @@ From Employees AS e2
 Inner Join CTE_EmployeeHierarchy As eh On eh.EmployeeID = e2.ManagerID)
 Select * From CTE_EmployeeHierarchy;
 --Q299. Use a CTE to calculate monthly revenue then compare to the annual average.
-With CTE_MonthlyRevenue AS
-(
-Select 
-	Year(o.OrderDate) AS Year,
-	Month(o.OrderDate) AS Month, 
-	Sum(od.UnitPrice * od.Quantity) AS Revenue_per_Month
-From Orders AS o
-Inner Join OrderDetails As od On od.OrderID=o.OrderID
-Group by Year(o.OrderDate), Month(o.OrderDate)
+WITH CTE_MonthlyRevenue AS (
+    SELECT
+        Year(o.OrderDate)  AS Year,
+        Month(o.OrderDate) AS Month,
+        SUM(od.UnitPrice * od.Quantity) AS Revenue_per_Month
+    FROM Orders AS o
+    INNER JOIN OrderDetails AS od ON od.OrderID = o.OrderID
+    GROUP BY Year(o.OrderDate), Month(o.OrderDate)
 )
-, CTE_AnnualAverage AS
-(
-	Select Year(o.OrderDate) AS Year, Avg(od.UnitPrice * od.Quantity) AS Avg_Annual
-	From Orders AS o
-	Inner Join OrderDetails As od On od.OrderID=o.OrderID
-	Group by Year(o.OrderDate)
+, CTE_AnnualAverage AS (
+    SELECT Year, AVG(Revenue_per_Month) AS Avg_Annual_Monthly_Revenue
+    FROM CTE_MonthlyRevenue
+    GROUP BY Year
 )
-Select CTE_MonthlyRevenue.*,CTE_AnnualAverage.Avg_Annual
-From CTE_MonthlyRevenue
-Inner Join CTE_AnnualAverage On CTE_AnnualAverage.Year=CTE_MonthlyRevenue.Year
-Order by CTE_MonthlyRevenue.Year;
+SELECT
+    mr.*,
+    aa.Avg_Annual_Monthly_Revenue,
+    CASE
+        WHEN mr.Revenue_per_Month >= aa.Avg_Annual_Monthly_Revenue
+        THEN 'Above Average'
+        ELSE 'Below Average'
+    END AS Comparison
+FROM CTE_MonthlyRevenue AS mr
+INNER JOIN CTE_AnnualAverage AS aa ON aa.Year = mr.Year
+ORDER BY mr.Year, mr.Month;
 --Q300. Create a CTE that finds products never ordered and another that finds slow movers, then UNION them.
 With CTE_ProductNeverOrdered As
 (Select p.ProductID From Products AS p Left Join OrderDetails As od On od.ProductID=p.ProductID where od.OrderID is NULL)
@@ -76,14 +80,16 @@ Union
 Select sm.ProductID From  CTE_SlowMovers As sm)
 Select * From CTE_NoOrder_SlowMover;
 --Q301. Use a CTE to identify customers at risk of churn (no order in 180 days).
-With CTE_CustomerChurnRisk As
-(
-Select o.CustomerID, Max(o.OrderDate) AS Last_OrderDate From Orders As o
-Group by o.CustomerID
-Having (GETDATE() - Max(o.OrderDate)) >= 180
+WITH CTE_CustomerChurnRisk AS (
+    SELECT
+        o.CustomerID,
+        MAX(o.OrderDate) AS Last_OrderDate,
+        DATEDIFF(Day, MAX(o.OrderDate), GETDATE()) AS Days_Since_Last_Order
+    FROM Orders AS o
+    GROUP BY o.CustomerID
+    HAVING DATEDIFF(Day, MAX(o.OrderDate), GETDATE()) >= 180
 )
-Select *
-From CTE_CustomerChurnRisk;
+SELECT * FROM CTE_CustomerChurnRisk;
 --Q302. Write a CTE chain to compute: orders -> order totals -> customer totals -> top customers.
 With CTE_Orders As
 (Select 
@@ -177,15 +183,17 @@ Where hs.rnk = 5;
 
 --Q306. Write a CTE to identify which promotions resulted in the highest order values.
 With CTE_HighestOrderValue As
-(Select Top 1 with Ties
+(Select 
 	p.PromotionID,
 	Sum(od.UnitPrice * od.Quantity) As orderValue 
 From Promotions AS p 
 Inner Join Orders AS o On o.OrderDate Between p.StartDate And p.EndDate 
 Inner Join OrderDetails As od On od.OrderID= o.OrderID
 Group by p.PromotionID
-Order by orderValue DESC
-)Select * From CTE_HighestOrderValue;
+)
+Select Top 1 with Ties * 
+From CTE_HighestOrderValue
+Order by orderValue DESC;
 
 --Q307. Use multiple CTEs to compare revenue: current year vs prior year.
 With CTE_RevenueCurrentYear As
@@ -274,12 +282,13 @@ Order by s.streak_length DESC;
 With CTE_Cohort As
 (Select c.CustomerID,Year(c.JoinDate) AS Join_Year From Customers As c)
 , CTE_OrderValue As
-(Select o.CustomerID,Year(o.OrderDate) As Order_Year,Sum(od.UnitPrice * od.Quantity) AS OrderValue From Orders AS o Inner Join OrderDetails As od On od.OrderID=o.OrderID Group by Year(o.OrderDate), o.CustomerID)
+(Select o.CustomerID,Sum(od.UnitPrice * od.Quantity) AS OrderValue From Orders AS o Inner Join OrderDetails As od On od.OrderID=o.OrderID Group by o.CustomerID)
 , CTE_AvgOrderValue As
 (
-Select ov.CustomerID, ov.Order_Year,Avg(ov.OrderValue) AS Avg_OrderValue From CTE_OrderValue as ov Inner Join CTE_Cohort AS c On c.CustomerID= ov.CustomerID And c.Join_Year=ov.Order_Year Group by ov.Order_Year,ov.CustomerID
+Select c.Join_Year, Avg(ov.OrderValue) AS Avg_OrderValue From CTE_OrderValue as ov Inner Join CTE_Cohort AS c On c.CustomerID= ov.CustomerID Group by c.Join_Year
 )
-Select * From CTE_AvgOrderValue;
+Select * From CTE_AvgOrderValue
+Order by Join_Year;
 
 --Q311. Create a recursive CTE that generates a sequence of dates for a given range.
 
